@@ -1,0 +1,15 @@
+bin/
+obj/
+out/
+.idea
+.vscode/
+.claude/
+.mcp.json
+.bash_profile
+.bashrc
+.gitconfig
+.gitmodules
+.profile
+.ripgreprc
+.zprofile
+.zshrc

@@ -1,0 +1,71 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Marschzeit.MainWindow"
+        Title="Marschzeittabelle (Prototyp)" Width="900" Height="760" WindowStartupLocation="CenterScreen">
+  <Grid Margin="12">
+    <!-- Screen 1: map -->
+    <DockPanel x:Name="Screen1">
+      <TextBlock DockPanel.Dock="Top" Margin="0,0,0,8" Text="Klicke auf die Karte, um Wegpunkte zu setzen (Klick auf Punkt = entfernen)." />
+      <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+        <Button x:Name="CalcBtn" Content="Berechnen" Padding="16,6" IsEnabled="False" Click="Calc_Click" />
+        <Button Content="Zurücksetzen" Padding="16,6" Margin="8,0,0,0" Click="Clear_Click" />
+        <TextBlock x:Name="CountText" Margin="12,0,0,0" VerticalAlignment="Center" />
+      </StackPanel>
+      <Viewbox Stretch="Uniform">
+        <Canvas x:Name="MapCanvas" Width="800" Height="600" Background="Transparent" PointerPressed="Map_Click" Cursor="Cross">
+          <Image Source="avares://Marschzeit/map.png" Width="800" Height="600" />
+        </Canvas>
+      </Viewbox>
+    </DockPanel>
+
+    <!-- Screen 2: result -->
+    <DockPanel x:Name="Screen2" IsVisible="False">
+      <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
+        <Button Content="Zurück" Padding="16,6" Click="Back_Click" />
+        <Button Content="⇅ Richtung wechseln" Padding="16,6" Margin="8,0,0,0" Click="Flip_Click" />
+        <Button Content="Save (CSV)" Padding="16,6" Margin="8,0,0,0" Click="Save_Click" />
+      </StackPanel>
+      <Border DockPanel.Dock="Bottom" Background="{DynamicResource CardBg}" Padding="12" Margin="0,8,0,0" CornerRadius="4">
+        <UniformGrid Columns="3" TextElement.Foreground="{DynamicResource CardFg}">
+          <StackPanel>
+            <TextBlock x:Name="SumStartZiel" />
+            <TextBlock Text="Landeskarten 1:25'000" />
+          </StackPanel>
+          <StackPanel>
+            <TextBlock x:Name="SumDist" /><TextBlock x:Name="SumAsc" /><TextBlock x:Name="SumEffort" />
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="Geschwindigkeit: " VerticalAlignment="Center" />
+              <TextBox x:Name="SpeedBox" Width="70" Text="4" LostFocus="Params_Changed" />
+              <TextBlock Text=" Lkm/h" VerticalAlignment="Center" />
+            </StackPanel>
+          </StackPanel>
+          <StackPanel>
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="Abreise: " VerticalAlignment="Center" />
+              <TextBox x:Name="StartBox" Width="80" Text="08:00" LostFocus="Params_Changed" />
+            </StackPanel>
+            <TextBlock x:Name="SumArrival" /><TextBlock x:Name="SumGehzeit" /><TextBlock x:Name="SumPausen" />
+          </StackPanel>
+        </UniformGrid>
+      </Border>
+      <Border DockPanel.Dock="Top" Background="{DynamicResource CardBg}" Padding="8" CornerRadius="4" Height="170">
+        <Canvas x:Name="ProfileCanvas" ClipToBounds="True" />
+      </Border>
+      <DataGrid x:Name="Grid" Margin="0,8,0,0" AutoGenerateColumns="False" CanUserSortColumns="False" CanUserReorderColumns="False"
+                CellEditEnded="Grid_CellEditEnded">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="Nr." Binding="{Binding Nr}" IsReadOnly="True" />
+          <DataGridTextColumn Header="Wegpunkt" Binding="{Binding Name}" IsReadOnly="True" />
+          <DataGridTextColumn Header="Koordinaten" Binding="{Binding Coord}" IsReadOnly="True" />
+          <DataGridTextColumn Header="Kommentar" Binding="{Binding Comment}" Width="*" />
+          <DataGridTextColumn Header="Höhe (m)" Binding="{Binding Height}" IsReadOnly="True" />
+          <DataGridTextColumn Header="Distanz (km)" Binding="{Binding Dist, StringFormat=0.0}" IsReadOnly="True" />
+          <DataGridTextColumn Header="Aufwand (Lkm)" Binding="{Binding Effort, StringFormat=0.0}" IsReadOnly="True" />
+          <DataGridTextColumn Header="Gehzeit (h)" Binding="{Binding GehzeitText}" IsReadOnly="True" />
+          <DataGridTextColumn Header="Uhrzeit" Binding="{Binding TimeText}" IsReadOnly="True" />
+          <DataGridTextColumn Header="Pause (min)" Binding="{Binding Pause}" />
+        </DataGrid.Columns>
+      </DataGrid>
+    </DockPanel>
+  </Grid>
+</Window>

@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marschzeittabelle (Prototyp)</title>
+<style>
+  :root { color-scheme:light dark; --bg:#fff; --fg:#1a1a1a; --card:#f1f3ee; --cardfg:#1a1a1a; --strong:#000; --muted:#555; --accent:#2d6a10; --btn:#3d6b1f; --inbg:#fff; --infg:#000; --inborder:#aaa; --fill:#a6e88a; --mapborder:#333; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#121212; --fg:#eee; --card:#1c1c1c; --cardfg:#eee; --strong:#fff; --muted:#aaa; --accent:#a6e88a; --inbg:#333; --infg:#fff; --inborder:#555; --mapborder:#888; }
+  }
+  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:900px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.2rem; }
+  .hidden { display:none; }
+  #mapwrap { position:relative; width:100%; max-width:800px; aspect-ratio:4/3; border:2px solid var(--mapborder); }
+  #mapwrap img, #mapwrap svg { position:absolute; inset:0; width:100%; height:100%; }
+  #mapwrap svg { cursor:crosshair; }
+  .bar { display:flex; gap:12px; align-items:center; margin:12px 0; flex-wrap:wrap; }
+  button { background:var(--btn); color:#fff; border:0; border-radius:14px; padding:8px 16px; font-size:1rem; cursor:pointer; }
+  button:disabled { opacity:.4; cursor:default; }
+  .card { background:var(--card); color:var(--cardfg); border-radius:6px; padding:12px; margin-bottom:12px; overflow-x:auto; }
+  .card h2 { font-size:1rem; margin:0 0 8px; }
+  table { border-collapse:collapse; width:100%; font-size:.85rem; }
+  th { text-align:right; padding:2px 6px; } td { text-align:right; padding:2px 6px; font-variant-numeric:tabular-nums; }
+  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align:left; }
+  td.coord { color:var(--accent); font-family:monospace; }
+  input { background:var(--inbg); color:var(--infg); border:1px solid var(--inborder); border-radius:4px; padding:2px 4px; }
+  input[type=number] { width:4.5em; }
+  .summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:4px 24px; }
+  .summary b { color:var(--strong); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Marschzeittabelle</h1>
+
+  <!-- Screen 1: map -->
+  <section id="screen1">
+    <p>Klicke auf die Karte, um Wegpunkte zu setzen (Klick auf Punkt = entfernen).</p>
+    <div id="mapwrap">
+      <img src="map.png" alt="Karte">
+      <svg id="overlay" viewBox="0 0 800 600"></svg>
+    </div>
+    <div class="bar">
+      <button id="calc" disabled>Berechnen</button>
+      <button id="clear">Zurücksetzen</button>
+      <span id="count"></span>
+    </div>
+  </section>
+
+  <!-- Screen 2: result -->
+  <section id="screen2" class="hidden">
+    <div class="card"><h2>Höhenprofil</h2><svg id="profile" viewBox="0 0 800 200" style="width:100%"></svg></div>
+    <div class="card"><h2>Marschzeittabelle</h2>
+      <table id="table"></table>
+    </div>
+    <div class="card summary" id="summary"></div>
+    <div class="bar">
+      <button id="back">Zurück</button>
+      <button id="flip">⇅ Richtung wechseln</button>
+      <button id="save">Save (CSV)</button>
+    </div>
+  </section>
+</main>
+
+<script>
+// ---- Model: static map 800x600 px, 1 px = 10 m; height is a fake terrain function ----
+const M_PER_PX = 10, MAP_W = 800, MAP_H = 600;
+const terrain = (x, y) => 800
+  + 300 * Math.exp(-((x-500)**2 + (y-300)**2) / (2*150**2))
+  + 100 * Math.exp(-((x-200)**2 + (y-400)**2) / (2*100**2));
+const state = { points: [], speed: 4, start: 8, route: null };
+
+// ---- Calculation (same rules as ckolin/marschzeittabelle) ----
+function calculate(points, speed, start) {
+  const rows = points.map((p, i) => ({
+    nr: i + 1, name: p.name, comment: p.comment || "", pause: p.pause || 0,
+    x: Math.round(600000 + p.x * M_PER_PX), y: Math.round(200000 + (MAP_H - p.y) * M_PER_PX),
+    height: Math.round(terrain(p.x, p.y)),
+  }));
+  let dist = 0, effort = 0, brk = 0, ascent = 0, descent = 0;
+  rows.forEach((r, i) => {
+    r.dHeight = r.dDist = r.dEffort = 0;
+    if (i > 0) {
+      const a = points[i-1], b = points[i];
+      const run = Math.hypot(b.x - a.x, b.y - a.y) * M_PER_PX;      // m
+      const rise = r.height - rows[i-1].height;
+      const slope = run ? rise / run : 0;
+      let e = run / 1000;
+      if (slope > 0) e += rise / 100; else if (slope < -0.2) e += Math.abs(rise) / 150;
+      if (rise > 0) ascent += rise; else descent -= rise;
+      brk += rows[i-1].pause;                                        // pause applies to the next leg
+      dist += run / 1000; effort += e;
+      r.dHeight = rise; r.dDist = run / 1000; r.dEffort = e;
+    }
+    r.dist = dist; r.effort = effort;
+    r.gehzeit = effort / speed;
+    r.time = r.gehzeit + brk / 60 + start;
+    r.dGehzeit = i > 0 ? r.gehzeit - rows[i-1].gehzeit : 0;
+  });
+  const last = rows[rows.length - 1];
+  const pauses = rows.slice(0, -1).reduce((s, r) => s + r.pause, 0);
+  return { rows, dist, effort, ascent, descent, gehzeit: last.gehzeit, pauses, arrival: last.time, speed, start };
+}
+
+// ---- Formatting ----
+const pad = n => String(n).padStart(2, "0");
+const parts = h => { const H = Math.floor(h); return [H, Math.floor((h - H) * 60)]; };
+const fTime = h => { const [H, m] = parts(h); return `${pad(H % 24)}:${pad(m)}`; };
+const fDur  = h => { const [H, m] = parts(h); return `${H}:${pad(m)}`; };
+const parseTime = s => { const [h, m] = s.split(":").map(Number); return h + (m || 0) / 60; };
+
+// ---- Screen 1 ----
+const overlay = document.getElementById("overlay");
+function drawMap() {
+  const pts = state.points;
+  overlay.innerHTML =
+    (pts.length > 1 ? `<polyline points="${pts.map(p => p.x + "," + p.y).join(" ")}" fill="none" stroke="#c0143c" stroke-width="3"/>` : "") +
+    pts.map((p, i) => `<g data-i="${i}" style="cursor:pointer"><circle cx="${p.x}" cy="${p.y}" r="10" fill="#fff" stroke="#c0143c" stroke-width="3"/><text x="${p.x}" y="${p.y+4}" text-anchor="middle" font-size="12" font-weight="bold">${i+1}</text></g>`).join("");
+  document.getElementById("count").textContent = pts.length + " Wegpunkte";
+  document.getElementById("calc").disabled = pts.length < 2;
+}
+overlay.addEventListener("click", e => {
+  const g = e.target.closest("g[data-i]");
+  if (g) state.points.splice(+g.dataset.i, 1);
+  else {
+    const r = overlay.getBoundingClientRect();
+    state.points.push({ x: (e.clientX - r.left) / r.width * MAP_W, y: (e.clientY - r.top) / r.height * MAP_H, pause: 0, comment: "" });
+  }
+  state.points.forEach((p, i) => p.name = "Punkt " + (i + 1));
+  drawMap();
+});
+document.getElementById("clear").onclick = () => { state.points = []; drawMap(); };
+document.getElementById("calc").onclick = () => show(2);
+
+// ---- Screen 2 ----
+function show(n) {
+  document.getElementById("screen1").classList.toggle("hidden", n !== 1);
+  document.getElementById("screen2").classList.toggle("hidden", n !== 2);
+  if (n === 2) render();
+}
+document.getElementById("back").onclick = () => show(1);
+document.getElementById("flip").onclick = () => { state.points.reverse(); state.points.forEach((p, i) => p.name = "Punkt " + (i + 1)); drawMap(); render(); };
+
+function render() {
+  const r = state.route = calculate(state.points, state.speed, state.start);
+  // profile: sample terrain along the straight lines, x = distance
+  const samples = [];
+  let d = 0;
+  for (let i = 1; i < state.points.length; i++) {
+    const a = state.points[i-1], b = state.points[i], len = Math.hypot(b.x-a.x, b.y-a.y);
+    const n = Math.max(2, Math.round(len / 4));
+    for (let k = (i === 1 ? 0 : 1); k <= n; k++) {
+      const t = k / n; samples.push({ d: d + len * t, h: terrain(a.x + (b.x-a.x)*t, a.y + (b.y-a.y)*t) });
+    }
+    d += len;
+  }
+  const hs = samples.map(s => s.h), lo = Math.min(...hs) - 20, hi = Math.max(...hs) + 20;
+  const X = v => 40 + v / d * 740, Y = v => 180 - (v - lo) / (hi - lo) * 160;
+  document.getElementById("profile").innerHTML =
+    `<polygon points="${X(0)},180 ${samples.map(s => X(s.d) + "," + Y(s.h)).join(" ")} ${X(d)},180" fill="var(--fill)" opacity=".85"/>` +
+    `<text x="4" y="${Y(hi)+4}" fill="var(--muted)" font-size="11">${Math.round(hi)} m</text><text x="4" y="${Y(lo)}" fill="var(--muted)" font-size="11">${Math.round(lo)} m</text>` +
+    r.rows.map(w => { const dd = w.dist * 1000 / M_PER_PX; return `<circle cx="${X(dd)}" cy="${Y(w.height)}" r="5" fill="var(--cardfg)" stroke="var(--card)"/><text x="${X(dd)}" y="${Y(w.height)-9}" text-anchor="middle" fill="var(--cardfg)" font-size="11">${w.nr}</text>`; }).join("");
+
+  const T = document.getElementById("table");
+  T.innerHTML = `<tr><th>Wegpunkt<br>Kommentar</th><th>Höhe</th><th>Distanz</th><th>Aufwand</th><th>Gehzeit</th><th>Uhrzeit<br>Pause</th></tr>` +
+    r.rows.map((w, i) => `<tr><td>${w.nr} ${w.name}<br><input data-c="${i}" value="${w.comment.replace(/"/g, "&quot;")}" placeholder="Kommentar"></td>
+      <td>${w.height} m</td><td>${w.dist.toFixed(1)} km</td><td>${w.effort.toFixed(1)} Lkm</td><td>${fDur(w.gehzeit)} h</td>
+      <td>${fTime(w.time)}<br><input type="number" min="0" step="5" data-p="${i}" value="${w.pause}"> min</td></tr>
+      <tr><td class="coord" colspan="6">${w.x}/${w.y}</td></tr>`).join("");
+  T.querySelectorAll("input[data-c]").forEach(el => el.oninput = () => state.points[+el.dataset.c].comment = el.value);
+  T.querySelectorAll("input[data-p]").forEach(el => el.onchange = () => { state.points[+el.dataset.p].pause = Math.max(0, +el.value || 0); render(); });
+
+  const f = state.points[0], l = state.points[state.points.length-1];
+  document.getElementById("summary").innerHTML = `
+    <div>Start: <b>${r.rows[0].name}</b><br>Ziel: <b>${r.rows.at(-1).name}</b><br>Landeskarten 1:25'000</div>
+    <div>Horizontaldistanz: <b>${r.dist.toFixed(1)} km</b><br>Auf-/Abstieg: ↑ <b>${Math.round(r.ascent)} m</b> ↓ <b>${Math.round(r.descent)} m</b><br>
+      Aufwand: <b>${r.effort.toFixed(1)} Lkm</b><br>Geschwindigkeit: <input id="speed" type="number" min="0.5" step="0.5" value="${r.speed}"> Lkm/h</div>
+    <div>Abreise: <input id="start" type="time" value="${fTime(r.start)}"><br>Ankunft: <b>${fTime(r.arrival)}</b><br>
+      Gehzeit: <b>${fDur(r.gehzeit)} h</b><br>Pausen: <b>${fDur(r.pauses / 60)} h</b></div>`;
+  document.getElementById("speed").onchange = e => { state.speed = Math.max(0.1, +e.target.value || 4); render(); };
+  document.getElementById("start").onchange = e => { state.start = parseTime(e.target.value || "08:00"); render(); };
+}
+
+// ---- CSV export (same columns as the original) ----
+document.getElementById("save").onclick = () => {
+  const r = state.route;
+  const head = ["Nr.","Wegpunkt","Koordinaten","Kommentar","Höhe / m","Differenz Höhe / m","Total Distanz / km","Differenz Distanz / km","Total Aufwand / Lkm","Differenz Aufwand / Lkm","Total Gehzeit / h","Differenz Gehzeit / h","Uhrzeit / hh:mm","Pause / min"];
+  const q = v => `"${String(v).replace(/"/g, '""')}"`;
+  const num = (v, n = 2) => v.toFixed(n);
+  const lines = [head, ...r.rows.map(w => [w.nr, w.name, `${w.x}/${w.y}`, w.comment, w.height, w.dHeight, num(w.dist), num(w.dDist), num(w.effort), num(w.dEffort), num(w.gehzeit), num(w.dGehzeit), fTime(w.time), w.pause])];
+  const csv = "﻿" + lines.map(l => l.map(q).join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  a.download = "marschzeittabelle.csv"; a.click();
+};
+
+drawMap();
+</script>
+</body>
+</html>
